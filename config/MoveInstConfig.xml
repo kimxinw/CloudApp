@@ -1,0 +1,187 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<JobInst>
+  <InstType name="Move">
+    <Inst name="MOVJ">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>MOVJ</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>30</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="MOVL">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>MOVL</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>31</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="MOVC">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>MOVC</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>32</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="SMOVL">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>SMOVL</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>34</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="SMOVC">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>SMOVC</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>35</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="MOVJ P">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>MOVJ P</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>37</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="MOVL P">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>MOVL P</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>38</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="MOV SPI">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>MOV SPI</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>402</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="MOVL ET">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>MOVL ET</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>400</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="MOVC ET">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>MOVC ET</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>401</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="ARCJ">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>ARCJ</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>560</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="ARCL">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>ARCL</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>561</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="ARCC">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>ARCC</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>562</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="SARCL">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>SARCL</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>570</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="SARCC">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>SARCC</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>571</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="ARCL P">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>ARCL P</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>572</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="ARCJ P">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>ARCJ P</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>1000</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="SARCL P">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>SARCL P</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>1001</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="PAL L">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>PAL L</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>112</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="PAL J">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>PAL J</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>113</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="SVMOVJ">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>SVMOVJ</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>132</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="SVMOVL">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>SVMOVL</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>136</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="CMOV">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>CMOV</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>167</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="VS_MOVL">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>VS_MOVL</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>175</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="FL_MOVL">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>FL_MOVL</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>180</InstCode>
+      <!--指令码-->
+    </Inst>
+    <Inst name="GR_MOVL">
+      <!--指令类型，右键菜单的一级菜单显示，不允许为空-->
+      <InstMenuTxt>GR_MOVL</InstMenuTxt>
+      <!--指令名称，右键菜单的二级菜单显示，不允许为空-->
+      <InstCode>181</InstCode>
+      <!--指令码-->
+    </Inst>
+  </InstType>
+</JobInst>

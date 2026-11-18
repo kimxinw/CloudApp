@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<SysConfig>
+  <ConfigType name="SysIO">
+    <ConfigItem name="RCBoard" des ="RC主板类型,1:老主板,2:新主板">2</ConfigItem>
+    <ConfigItem name="Read_MainJobOpen" des="远程输出IO,主程序打开确认">4073</ConfigItem>
+    <ConfigItem name="Read_SafeDoor" des="远程输出IO,安全门">4075</ConfigItem>
+    <ConfigItem name="Read_OnPath" des="远程输出IO,在路径上">4076</ConfigItem>
+    <ConfigItem name="Read_Position1" des="远程输出IO,原点位置1">4077</ConfigItem>
+    <ConfigItem name="Read_Position2" des="远程输出IO,原点位置2">4078</ConfigItem>
+    <ConfigItem name="Read_Warning" des="远程输出IO,报警中">4085</ConfigItem>
+    <ConfigItem name="Read_Online" des="远程输出IO,远程模式">4086</ConfigItem>
+    <ConfigItem name="Read_AutoRun" des="远程输出IO,运行中">4087</ConfigItem>
+    <ConfigItem name="Read_PowerOn" des="远程输出IO,伺服上电确认">4088</ConfigItem>
+    <ConfigItem name="Read_Play" des="远程输出IO,执行模式">4089</ConfigItem>
+    <ConfigItem name="Read_MainJobRun" des="远程输出IO,主作业执行中">4090</ConfigItem>
+    <ConfigItem name="Read_Teach" des="远程输出IO,示教模式">4091</ConfigItem>
+  </ConfigType>
+  <ConfigType name="Log">
+    <ConfigItem name="LogOpenFlag" des ="日志开启标识,1:开启,0:关闭">0</ConfigItem>
+  </ConfigType>
+  <ConfigType name="Job">
+    <ConfigItem name="JobCreateFlag" des ="创建作业开启标识,1:开启,0:关闭">0</ConfigItem>
+  </ConfigType>
+
+</SysConfig>

@@ -1,0 +1,45 @@
+# Qt Creator
+*.pro.user
+*.pro.user.*
+.qmake.stash
+.qtcreator/
+.qtc_clangd/
+
+# qmake生成文件
+Makefile
+Makefile.Debug
+Makefile.Release
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+
+# 编译产物
+*.obj
+*.o
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.lastbuildstate
+
+# 构建目录
+build/
+build-QT6.7.3/
+debug/
+release/
+release.zip
+
+# 扫描输出
+work/
+work1/
+debug_frames/
+debug_frames1/
+cloud*.pcd
+
+# 临时及本机文件
+*.bak
+*.tmp
+*.log
+*.lic
