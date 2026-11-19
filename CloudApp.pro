@@ -13,9 +13,9 @@ LIBS += -L$$PWD/lib \
     -lweld_search \
     -lRobotSDK
 
-include($$PWD/../GalaxySDK.pri)
-include($$PWD/../pcl1.12.1.pri)
-include($$PWD/../opencv.pri)
+include($$PWD/qmake/GalaxySDK.pri)
+include($$PWD/qmake/pcl1.12.1.pri)
+include($$PWD/qmake/opencv.pri)
 INCLUDEPATH += ./eigen-master
 INCLUDEPATH += ./json-develop/include
 # 为C和C++编译器启用AVX指令集

@@ -1,0 +1,4 @@
+GALAXY_SDK_DIR = "D:/GalaxySDK/Development/C++ SDK"
+
+INCLUDEPATH += "$$GALAXY_SDK_DIR/inc"
+LIBS += -L"$$GALAXY_SDK_DIR/lib/x64" -lGxIAPICPPEx
