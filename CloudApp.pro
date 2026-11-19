@@ -28,11 +28,14 @@ QMAKE_CXXFLAGS += /arch:AVX
 SOURCES += \
     delectseam.cpp \
     main.cpp \
-    opencvset.cpp
+    opencvset.cpp \
+    src/imagewriter.cpp
 
 HEADERS += \
     delectseam.h \
-    opencvset.h
+    opencvset.h \
+    include/imageframe.h \
+    include/imagewriter.h
 
 FORMS += \
     delectseam.ui \

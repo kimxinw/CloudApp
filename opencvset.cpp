@@ -16,8 +16,11 @@
 #include <QDebug>
 #include <QSettings>
 #include <QPointer>
+#include <QScopeGuard>
 #include <random>
 #include <delectseam.h>
+#include <cstring>
+#include <limits>
 
 bool camera_is_Init=false;
 bool camera_is_open=false;
@@ -86,12 +89,10 @@ OpenCVSet::OpenCVSet(QWidget *parent)
     m_pCaptureHandler(nullptr),
     m_pCaptureHandler1(nullptr),
     m_bCallbackMode(false),
-    m_bGrabbing(false),
-    m_frameCount1(0),
-    m_frameCount2(0),
-    m_savedCount1(0),
-    m_savedCount2(0)
+    m_bGrabbing(false)
 {
+    m_frameSequences[0].store(0);
+    m_frameSequences[1].store(0);
     ui->setupUi(this);
     calibrator = new Cloud_selve();
     weldSearch = new Weld_search();
@@ -141,11 +142,20 @@ OpenCVSet::OpenCVSet(QWidget *parent)
 
 OpenCVSet::~OpenCVSet()
 {
+    m_isDestorying = true;
+    if (workTimer) {
+        workTimer->stop();
+    }
+    StopCallbackCapture();
+    if (m_imageWriter) {
+        m_imageWriter->seal();
+        m_imageWriter->wait();
+        m_imageWriter.reset();
+    }
+
     delete calibrator;
     delete weldSearch;
     delete wedlprocessor;
-    m_isDestorying = true;
-    StopCallbackCapture();
     if(robot_is_connect)
     {
         Disconnect(connectID);
@@ -183,7 +193,6 @@ OpenCVSet::~OpenCVSet()
 
 
     QCoreApplication::removePostedEvents(this);
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 100);
 
     if (!objStreamPtr.IsNull()) {
         try { objStreamPtr->StopGrab(); } catch(...) {}
@@ -233,8 +242,7 @@ OpenCVSet::~OpenCVSet()
 // 回调处理类的实现
 void CSampleCaptureEventHandler::DoOnImageCaptured(CImageDataPointer& objImageDataPointer, void* pUserParam)
 {
-    if (m_pMainWindow && GX_FRAME_STATUS_SUCCESS == objImageDataPointer->GetStatus())
-    {
+    if (m_pMainWindow) {
         m_pMainWindow->OnImageCaptured(objImageDataPointer, m_cameraID);
     }
 }
@@ -376,10 +384,6 @@ void OpenCVSet::StartCallbackCapture()
 
         m_bGrabbing = true;
         m_bCallbackMode = true;
-        m_frameCount1 = 0;
-        m_frameCount2 = 0;
-        m_savedCount1 = 0;
-        m_savedCount2 = 0;
         m_captureTimer.start();
 
         addlog("回调采集已启动");
@@ -394,205 +398,235 @@ void OpenCVSet::StartCallbackCapture()
 // 停止回调采集
 void OpenCVSet::StopCallbackCapture()
 {
-    if (!m_bGrabbing) return;
+    m_acceptFrames.store(false, std::memory_order_release);
 
-    try {
-        // 停止采集命令 - 使用你的全局变量 featureControl 和 featureControl1
-        if (!featureControl.IsNull()) {
-            CCommandFeaturePointer pCmd = featureControl->GetCommandFeature("AcquisitionStop");
-            if (!pCmd.IsNull()) {
-                pCmd->Execute();
+    if (m_bGrabbing || m_pCaptureHandler || m_pCaptureHandler1) {
+        try {
+            if (!featureControl.IsNull()) {
+                CCommandFeaturePointer command = featureControl->GetCommandFeature("AcquisitionStop");
+                if (!command.IsNull()) {
+                    command->Execute();
+                }
             }
+        } catch (...) {
+            addlog("停止相机1采集失败");
         }
 
-        if (!featureControl1.IsNull()) {
-            CCommandFeaturePointer pCmd = featureControl1->GetCommandFeature("AcquisitionStop");
-            if (!pCmd.IsNull()) {
-                pCmd->Execute();
+        try {
+            if (!featureControl1.IsNull()) {
+                CCommandFeaturePointer command = featureControl1->GetCommandFeature("AcquisitionStop");
+                if (!command.IsNull()) {
+                    command->Execute();
+                }
             }
+        } catch (...) {
+            addlog("停止相机2采集失败");
         }
+    }
 
-        // 停止流通道
-        if (!objStreamPtr.IsNull()) {
+    if (!objStreamPtr.IsNull() && m_pCaptureHandler) {
+        try {
             objStreamPtr->StopGrab();
+        } catch (...) {
+            addlog("停止相机1数据流失败");
+        }
+        try {
             objStreamPtr->UnregisterCaptureCallback();
+        } catch (...) {
+            addlog("注销相机1回调失败");
         }
+    }
 
-        if (!objStreamPtr1.IsNull()) {
+    if (!objStreamPtr1.IsNull() && m_pCaptureHandler1) {
+        try {
             objStreamPtr1->StopGrab();
+        } catch (...) {
+            addlog("停止相机2数据流失败");
+        }
+        try {
             objStreamPtr1->UnregisterCaptureCallback();
+        } catch (...) {
+            addlog("注销相机2回调失败");
         }
-
-        m_bGrabbing = false;
-        addlog("回调采集已停止");
-
-        // 输出性能统计
-        qDebug() << "========== 采集性能统计 ==========";
-        qDebug() << "相机1采集帧数:" << m_frameCount1;
-        qDebug() << "相机2采集帧数:" << m_frameCount2;
-        qDebug() << "相机1保存数量:" << m_savedCount1;
-        qDebug() << "相机2保存数量:" << m_savedCount2;
-
-        if (m_frameCount1 > 0 && m_captureTimer.elapsed() > 0) {
-            qDebug() << "采集时长:" << m_captureTimer.elapsed() << "ms";
-            qDebug() << "相机1平均帧率:" << (m_frameCount1 * 1000.0 / m_captureTimer.elapsed()) << "fps";
-            qDebug() << "相机2平均帧率:" << (m_frameCount2 * 1000.0 / m_captureTimer.elapsed()) << "fps";
-        }
-        qDebug() << "==================================";
-
-    } catch (const std::exception& e) {
-        addlog(QString("停止回调采集失败: %1").arg(e.what()));
-    } catch (...) {
-        addlog("停止回调采集失败: 未知错误");
-    }
-}
-
-// 计算图像缓冲区大小
-size_t OpenCVSet::GetImageBufferSize(CImageDataPointer& image)
-{
-    if (image.IsNull()) return 0;
-
-    uint64_t nWidth = image->GetWidth();
-    uint64_t nHeight = image->GetHeight();
-    GX_PIXEL_FORMAT_ENTRY emPixelFormat = image->GetPixelFormat();
-
-    size_t bytesPerPixel = 1;
-    switch (emPixelFormat) {
-        case GX_PIXEL_FORMAT_RGB8:
-        case GX_PIXEL_FORMAT_BGR8:
-            bytesPerPixel = 3;
-            break;
-        case GX_PIXEL_FORMAT_RGBA8:
-        case GX_PIXEL_FORMAT_BGRA8:
-            bytesPerPixel = 4;
-            break;
-        case GX_PIXEL_FORMAT_MONO10:
-        case GX_PIXEL_FORMAT_MONO12:
-            bytesPerPixel = 2;
-            break;
-        default:
-            bytesPerPixel = 1;
-            break;
     }
 
-    return nWidth * nHeight * bytesPerPixel;
+    {
+        QMutexLocker locker(&m_callbackWaitMutex);
+        while (m_callbacksInFlight.load(std::memory_order_acquire) != 0) {
+            m_callbacksFinished.wait(&m_callbackWaitMutex);
+        }
+    }
+
+    delete m_pCaptureHandler;
+    m_pCaptureHandler = nullptr;
+    delete m_pCaptureHandler1;
+    m_pCaptureHandler1 = nullptr;
+
+    const bool wasCapturing = m_bGrabbing || m_bCallbackMode;
+    m_bGrabbing = false;
+    m_bCallbackMode = false;
+
+    if (m_imageWriter) {
+        m_imageWriter->seal();
+    }
+
+    if (wasCapturing) {
+        const quint64 frameCount1 = m_frameSequences[0].load();
+        const quint64 frameCount2 = m_frameSequences[1].load();
+        addlog("回调采集已停止，正在排空图像保存队列");
+        qDebug() << "采集时长:" << m_captureTimer.elapsed() << "ms";
+        qDebug() << "相机1采集帧数:" << frameCount1;
+        qDebug() << "相机2采集帧数:" << frameCount2;
+    }
 }
 
 // 图像回调处理
 void OpenCVSet::OnImageCaptured(CImageDataPointer& objImageDataPointer, int cameraID)
 {
-    if (objImageDataPointer.IsNull()) return;
-
-    // 更新帧计数
-    int frameNumber;
-    if (cameraID == 0) {
-        m_frameCount1++;
-        frameNumber = m_frameCount1;
-    } else {
-        m_frameCount2++;
-        frameNumber = m_frameCount2;
-    }
-
-    // 计算缓冲区大小
-    size_t bufferSize = GetImageBufferSize(objImageDataPointer);
-    if (bufferSize == 0) return;
-
-    // 复制图像数据
-    unsigned char* pBuffer = new unsigned char[bufferSize];
-    memcpy(pBuffer, objImageDataPointer->GetBuffer(), bufferSize);
-
-    // 获取图像参数
-    uint64_t nWidth = objImageDataPointer->GetWidth();
-    uint64_t nHeight = objImageDataPointer->GetHeight();
-    GX_PIXEL_FORMAT_ENTRY emPixelFormat = objImageDataPointer->GetPixelFormat();
-
-    // 创建任务
-    ImageTask task;
-    task.buffer = pBuffer;
-    task.bufferSize = bufferSize;
-    task.width = nWidth;
-    task.height = nHeight;
-    task.cameraID = cameraID;
-    task.frameNumber = frameNumber;
-    task.pixelFormat = emPixelFormat;
-
-    // 加入对应队列
-    if (cameraID == 0) {
-        QMutexLocker locker(&m_mutex1);
-        m_imageQueue1.enqueue(task);
-    } else {
-        QMutexLocker locker(&m_mutex2);
-        m_imageQueue2.enqueue(task);
-    }
-
-    // 触发处理
-    QMetaObject::invokeMethod(this, "ProcessSavedImage", Qt::QueuedConnection);
-}
-
-// 处理队列中的图像
-void OpenCVSet::ProcessSavedImage()
-{
-    // 处理相机1队列
-    {
-        QMutexLocker locker(&m_mutex1);
-        while (!m_imageQueue1.isEmpty()) {
-            ImageTask task = m_imageQueue1.dequeue();
-            // 异步保存
-            QtConcurrent::run([this, task]() {
-                SaveImageTask(task);
-            });
+    m_callbacksInFlight.fetch_add(1, std::memory_order_acq_rel);
+    const auto callbackGuard = qScopeGuard([this]() {
+        const int previous = m_callbacksInFlight.fetch_sub(1, std::memory_order_acq_rel);
+        if (previous == 1) {
+            QMutexLocker locker(&m_callbackWaitMutex);
+            m_callbacksFinished.wakeAll();
         }
-    }
+    });
 
-    // 处理相机2队列
-    {
-        QMutexLocker locker(&m_mutex2);
-        while (!m_imageQueue2.isEmpty()) {
-            ImageTask task = m_imageQueue2.dequeue();
-            // 异步保存
-            QtConcurrent::run([this, task]() {
-                SaveImageTask(task);
-            });
-        }
-    }
-}
-
-void OpenCVSet::SaveImageTask(const ImageTask& task)
-{
-    // 确保目录存在
-    QString saveDir;
-    if (task.cameraID == 0) {
-        saveDir = QDir::current().absolutePath() + "/work/";
-    } else {
-        saveDir = QDir::current().absolutePath() + "/work1/";
-    }
-
-    QDir dir;
-    if (!dir.exists(saveDir)) {
-        dir.mkpath(saveDir);
-    }
-
-    // 转换为 OpenCV Mat
-    cv::Mat grayImage;
-    if (task.pixelFormat == GX_PIXEL_FORMAT_MONO8) {
-        grayImage = cv::Mat(task.height, task.width, CV_8UC1, task.buffer);
-    } else {
-        delete[] task.buffer;
+    if (!m_acceptFrames.load(std::memory_order_acquire)) {
         return;
     }
 
-    // 直接保存灰度图像
-    QString fileName = QString("%1.png").arg(task.frameNumber, 4, 10, QChar('0'));
-    QString fullPath = saveDir + fileName;
-    QByteArray pathBytes = fullPath.toLocal8Bit();
+    const quint64 callbackGeneration = m_captureGeneration.load(std::memory_order_acquire);
+    auto requestStop = [this, callbackGeneration](const QString &reason) {
+        if (!m_capturePipelineFailed.exchange(true)) {
+            QMetaObject::invokeMethod(this,
+                                      "handleCapturePipelineFailure",
+                                      Qt::QueuedConnection,
+                                      Q_ARG(quint64, callbackGeneration),
+                                      Q_ARG(QString, reason));
+        }
+    };
 
-    cv::imwrite(pathBytes.constData(), grayImage);
+    try {
+        if (objImageDataPointer.IsNull() || cameraID < 0 || cameraID > 1) {
+            requestStop("收到无效的相机回调数据，已停止本次扫描");
+            return;
+        }
 
-    qDebug() << QString("相机%1 第%2张保存成功")
-                .arg(task.cameraID + 1)
-                .arg(task.frameNumber);
+        if (objImageDataPointer->GetStatus() != GX_FRAME_STATUS_SUCCESS) {
+            requestStop("相机返回不完整图像，已停止本次扫描");
+            return;
+        }
 
-    delete[] task.buffer;
+        if (objImageDataPointer->GetPixelFormat() != GX_PIXEL_FORMAT_MONO8) {
+            requestStop("收到非 Mono8 图像，已停止本次扫描");
+            return;
+        }
+
+        const uint64_t width = objImageDataPointer->GetWidth();
+        const uint64_t height = objImageDataPointer->GetHeight();
+        const uint64_t payloadSize = objImageDataPointer->GetPayloadSize();
+        if (width == 0 || height == 0
+            || width > static_cast<uint64_t>(std::numeric_limits<int>::max())
+            || height > static_cast<uint64_t>(std::numeric_limits<int>::max())
+            || width > std::numeric_limits<uint64_t>::max() / height
+            || payloadSize < width * height
+            || payloadSize > static_cast<uint64_t>(std::numeric_limits<qsizetype>::max())
+            || objImageDataPointer->GetBuffer() == nullptr) {
+            requestStop("收到尺寸或缓冲区长度无效的图像，已停止本次扫描");
+            return;
+        }
+
+        ImageFrame frame;
+        frame.cameraId = cameraID;
+        frame.sequence = m_frameSequences[cameraID].fetch_add(1) + 1;
+        frame.deviceFrameId = objImageDataPointer->GetFrameID();
+        frame.deviceTimestamp = objImageDataPointer->GetTimeStamp();
+        frame.width = static_cast<int>(width);
+        frame.height = static_cast<int>(height);
+        frame.pixelFormat = ImagePixelFormat::Mono8;
+        frame.pixels.resize(static_cast<qsizetype>(payloadSize));
+        std::memcpy(frame.pixels.data(), objImageDataPointer->GetBuffer(),
+                    static_cast<size_t>(payloadSize));
+
+        if (!m_imageWriter) {
+            requestStop("图像保存器不存在，已停止本次扫描");
+            return;
+        }
+
+        const ImageWriter::EnqueueResult result = m_imageWriter->enqueue(std::move(frame));
+        if (result != ImageWriter::EnqueueResult::Accepted) {
+            m_capturePipelineFailed.store(true);
+        }
+    } catch (const std::exception &exception) {
+        requestStop(QString("处理相机回调失败：%1").arg(exception.what()));
+    } catch (...) {
+        requestStop("处理相机回调时发生未知错误，已停止本次扫描");
+    }
+}
+
+void OpenCVSet::handleImageQueueOverflow()
+{
+    if (sender() != m_imageWriter.get()) {
+        return;
+    }
+
+    handleCapturePipelineFailure(
+        m_captureGeneration.load(),
+        "图像保存队列已达到上限，为避免内存继续增长，本次扫描已停止");
+}
+
+void OpenCVSet::handleCapturePipelineFailure(quint64 generation, const QString &reason)
+{
+    if (m_isDestorying || generation != m_captureGeneration.load()) {
+        return;
+    }
+
+    m_capturePipelineFailed.store(true);
+    addlog(reason);
+
+    if (workTimer) {
+        workTimer->stop();
+    }
+    StopCallbackCapture();
+}
+
+void OpenCVSet::handleAllImagesSaved()
+{
+    if (m_isDestorying || !m_imageWriter || sender() != m_imageWriter.get()) {
+        return;
+    }
+
+    const ImageWriter::Stats stats = m_imageWriter->stats();
+    const quint64 camera1Frames = m_frameSequences[0].load();
+    const quint64 camera2Frames = m_frameSequences[1].load();
+    const bool success = !m_capturePipelineFailed.load()
+                         && stats.pendingFrames == 0
+                         && stats.savedFrames > 0
+                         && stats.failedFrames == 0
+                         && stats.droppedFrames == 0
+                         && stats.acceptedFrames == stats.savedFrames
+                         && stats.acceptedFrames == camera1Frames + camera2Frames
+                         && camera1Frames > 0
+                         && camera1Frames == camera2Frames;
+
+    m_imagesReadyForReconstruction = success;
+    ui->pushButton_19->setEnabled(success);
+
+    addlog(QString("图像保存完成：接收=%1，成功=%2，失败=%3，丢弃=%4")
+               .arg(stats.acceptedFrames)
+               .arg(stats.savedFrames)
+               .arg(stats.failedFrames)
+               .arg(stats.droppedFrames));
+
+    if (camera1Frames != camera2Frames) {
+        addlog(QString("双相机帧数不一致：相机1=%1，相机2=%2")
+                   .arg(camera1Frames)
+                   .arg(camera2Frames));
+    }
+
+    addlog(success ? "图像已全部保存，可以开始点云重建"
+                   : "本次扫描数据不完整，禁止点云重建");
 }
 
 // 在可视化窗口中添加圆弧
@@ -1769,13 +1803,47 @@ void OpenCVSet::on_pushButton_15_clicked()
 
 
 
-    // positionTimer->stop();
+    if (m_bCallbackMode || m_bGrabbing || m_pCaptureHandler || m_pCaptureHandler1) {
+        StopCallbackCapture();
+    }
+
+    if (m_imageWriter) {
+        if (!m_imageWriter->isFinished()) {
+            addlog("上一次图像仍在保存，暂时不能开始新扫描");
+            return;
+        }
+        m_imageWriter->wait();
+        m_imageWriter.reset();
+    }
+
     OpenCVSet::clearWork();
     callCount = 0;
-    m_frameCount1 = 0;
-    m_frameCount2 = 0;
-    m_savedCount1 = 0;
-    m_savedCount2 = 0;
+    m_frameSequences[0].store(0);
+    m_frameSequences[1].store(0);
+    m_capturePipelineFailed.store(false);
+    const quint64 captureGeneration = m_captureGeneration.fetch_add(1) + 1;
+    m_imagesReadyForReconstruction = false;
+    ui->pushButton_19->setEnabled(false);
+
+    try {
+        const QString root = QDir::currentPath();
+        m_imageWriter = std::make_unique<ImageWriter>(
+            QDir(root).filePath("work"),
+            QDir(root).filePath("work1"),
+            64,
+            256 * 1024 * 1024,
+            2);
+
+        connect(m_imageWriter.get(), &ImageWriter::queueOverflow,
+                this, &OpenCVSet::handleImageQueueOverflow,
+                Qt::QueuedConnection);
+        connect(m_imageWriter.get(), &ImageWriter::allImagesSaved,
+                this, &OpenCVSet::handleAllImagesSaved,
+                Qt::QueuedConnection);
+    } catch (const std::exception &exception) {
+        addlog(QString("初始化图像保存器失败：%1").arg(exception.what()));
+        return;
+    }
 
     if (featureControl->IsImplemented("TriggerSource"))
     {
@@ -1788,30 +1856,42 @@ void OpenCVSet::on_pushButton_15_clicked()
         addlog("触发源: IO触发");
     }
 
-    // ⭐ 关键修改：每次都重新初始化
-    // 先停止之前的采集
-    if (m_bCallbackMode) {
-        StopCallbackCapture();
-        m_bCallbackMode = false;
-    }
-
-    // 重新初始化并启动
     if (InitCallbackCapture()) {
         OpenCVSet::on_pushButton_42_clicked();
         PCL2Camera();
+        m_acceptFrames.store(true, std::memory_order_release);
         StartCallbackCapture();
+
+        if (!m_bGrabbing) {
+            handleCapturePipelineFailure(captureGeneration,
+                                         "回调采集启动失败，本次扫描已取消");
+            return;
+        }
+
         workTimer->start();
         addlog("已切换到回调采集模式");
     } else {
-        OpenCVSet::on_pushButton_42_clicked();
-        PCL2Camera();
-        addlog("回调采集模式启动失败，使用原有模式");
-        workTimer->start();
+        handleCapturePipelineFailure(captureGeneration,
+                                     "回调采集初始化失败，本次扫描已取消");
     }
 }
 
 void OpenCVSet::on_pushButton_19_clicked()
 {
+    if (!m_imagesReadyForReconstruction || !m_imageWriter) {
+        QMessageBox::warning(this, "无法重建",
+                             "图像尚未全部保存，或本次扫描存在保存失败/丢帧。");
+        return;
+    }
+
+    const ImageWriter::Stats imageStats = m_imageWriter->stats();
+    if (imageStats.pendingFrames != 0
+        || imageStats.failedFrames != 0
+        || imageStats.droppedFrames != 0) {
+        QMessageBox::warning(this, "无法重建", "图像保存状态不完整。");
+        return;
+    }
+
     if (calibrator) {
         // 使用红色通道（默认）
 

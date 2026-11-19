@@ -9,14 +9,18 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <vector>
+#include <array>
+#include <atomic>
+#include <memory>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QMutex>
-#include <QQueue>
+#include <QWaitCondition>
 #include <QThread>
 #include <GalaxyIncludes.h>
 #include "cloud_selve.h"
+#include "imagewriter.h"
 #include "weld_search.h"
 #include "Robot_Datatype.h"
 #include "RobotSDK.h"
@@ -50,16 +54,6 @@ class OpenCVSet;
 
 // 前向声明
 class OpenCVSet;
-
-struct ImageTask {
-    unsigned char* buffer;
-    size_t bufferSize;
-    int width;
-    int height;
-    int cameraID;
-    int frameNumber;
-    GX_PIXEL_FORMAT_ENTRY pixelFormat;
-};
 
 struct WeldDate{
     int id;
@@ -134,7 +128,9 @@ private slots:
     void loadSettings();
     void saveSettings();
     void on_pushButton_26_clicked();
-    void ProcessSavedImage();
+    void handleImageQueueOverflow();
+    void handleCapturePipelineFailure(quint64 generation, const QString &reason);
+    void handleAllImagesSaved();
     void on_pushButton_27_clicked();
 
     void on_pushButton_24_clicked();
@@ -206,24 +202,20 @@ private:
     bool m_bCallbackMode;                            // 是否使用回调模式
     bool m_bGrabbing;                                // 是否正在采集
 
-    // 图像计数
-    int m_frameCount1;                               // 相机1采集帧数
-    int m_frameCount2;                               // 相机2采集帧数
-    int m_savedCount1;                               // 相机1已保存数量
-    int m_savedCount2;                               // 相机2已保存数量
+    // 图像保存流水线
+    std::unique_ptr<ImageWriter> m_imageWriter;
+    std::array<std::atomic<quint64>, 2> m_frameSequences;
+    std::atomic_bool m_acceptFrames{false};
+    std::atomic_bool m_capturePipelineFailed{false};
+    std::atomic<quint64> m_captureGeneration{0};
+    std::atomic_int m_callbacksInFlight{0};
+    QMutex m_callbackWaitMutex;
+    QWaitCondition m_callbacksFinished;
+    bool m_imagesReadyForReconstruction = false;
 
     // 性能统计
     QElapsedTimer m_captureTimer;
     QList<qint64> m_captureTimes;                   // 记录每次采集耗时
-
-
-    void SaveImageTask(const ImageTask& task);  // 实际保存函数
-    size_t GetImageBufferSize(CImageDataPointer& image);  // 计算缓冲区大小
-
-    QQueue<ImageTask> m_imageQueue1;
-    QQueue<ImageTask> m_imageQueue2;
-    QMutex m_mutex1;
-    QMutex m_mutex2;
 };
 
 #endif // OPENCVSET_H
