@@ -3,7 +3,9 @@
 
 #include <QtCore/qglobal.h>
 
-#if defined(WELD_SEARCH_LIBRARY)
+#if defined(WELD_SEARCH_STATIC)
+#define WELD_SEARCH_EXPORT
+#elif defined(WELD_SEARCH_LIBRARY)
 #define WELD_SEARCH_EXPORT Q_DECL_EXPORT
 #else
 #define WELD_SEARCH_EXPORT Q_DECL_IMPORT

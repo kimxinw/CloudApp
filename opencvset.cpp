@@ -2461,61 +2461,61 @@ void OpenCVSet::on_pushButton_26_clicked()
     qDebug() << "共检测到" << seams.size() << "条直焊缝";
     qDebug() <<"检测到"<<arcs.size()<<"条圆弧";
 
+    if (seams.empty()) {
+        QMessageBox::warning(this, "提示", "未检测到可选择的直线焊缝任务");
+        return;
+    }
 
-    std::vector<std::vector<pcl::PointXYZ>> arc_clouds;
-
-    // ===== 第一次调用：正常顺时针排序 =====
-    auto result3d = WeldSeamExtractor::convertAndGroupTo3D(
-        seams, arcs, points_2d, z0, axis, angle,
-        20.0, 10.0, 20.0, 20.0, &arc_clouds, 30,
-        true);   // do_clockwise_sort = true
-
-    // 保存第一次的立焊缝
-    auto saved_vertical_seams = result3d.vertical_seams;
 
     visualizeWeldSeamsAndArcs(points_2d, seams, arcs);
 
     QString pic_path = path + "/weld_seams_and_arcs_result.png";
 
-    DelectSeam ds;
-    ds.show();
-    label:
+    QStringList seam_items;
+    for (int i = 0; i < static_cast<int>(seams.size()); ++i) {
+        const WeldSeam2D& seam = seams[i];
+        seam_items.append(
+            QString("焊缝 %1  长度 %2 mm  (%3, %4) → (%5, %6)")
+                .arg(i + 1)
+                .arg(seam.length, 0, 'f', 1)
+                .arg(seam.start.x, 0, 'f', 1)
+                .arg(seam.start.y, 0, 'f', 1)
+                .arg(seam.end.x, 0, 'f', 1)
+                .arg(seam.end.y, 0, 'f', 1));
+    }
+
+    DelectSeam ds(this);
     ds.addpic(pic_path);
-    int result = ds.exec();
+    ds.setSeamItems(seam_items);
+    ds.setArcDeletionVisible(false);
 
+    if (ds.exec() != QDialog::Accepted) {
+        addlog("已取消焊缝任务选择");
+        return;
+    }
 
-    if (result / 10000 == 1) {
-        if (result % 10000 >= seams.size()) {
-            QMessageBox::information(&ds, "提示", "未检测到该焊缝，请检查数据", QMessageBox::Ok);
-            goto label;
-        } else {
-            seams.erase(seams.begin() + result % 10000);
-            arc_clouds.clear();
-            // ===== 重新调用：跳过顺时针排序，保持起终点方向 =====
-            result3d = WeldSeamExtractor::convertAndGroupTo3D(
-                seams, arcs, points_2d, z0, axis, angle,
-                20.0, 10.0, 20.0, 20.0, &arc_clouds, 30,
-                false);
-            result3d.vertical_seams = saved_vertical_seams;  // 恢复立焊缝
-            visualizeWeldSeamsAndArcs(points_2d, seams, arcs);
-            goto label;
-        }
-    } else if (result / 20000 == 1) {
-        if (result % 20000 >= arcs.size()) {
-            QMessageBox::information(&ds, "提示", "未检测到该焊缝，请检查数据", QMessageBox::Ok);
-            goto label;
-        } else {
-            arcs.erase(arcs.begin() + result % 20000);
-            arc_clouds.clear();
-            result3d = WeldSeamExtractor::convertAndGroupTo3D(
-                seams, arcs, points_2d, z0, axis, angle,
-                20.0, 10.0, 20.0, 20.0, &arc_clouds, 30,
-                false);
-            result3d.vertical_seams = saved_vertical_seams;  // 恢复立焊缝
-            visualizeWeldSeamsAndArcs(points_2d, seams, arcs);
-            goto label;
+    const QVector<int> selected_indices = ds.selectedSeamIndices();
+    if (selected_indices.isEmpty()) {
+        QMessageBox::warning(this, "提示", "请至少选择一条焊缝任务");
+        return;
+    }
+
+    std::vector<WeldSeam2D> selected_seams;
+    selected_seams.reserve(selected_indices.size());
+    for (int index : selected_indices) {
+        if (index >= 0 && index < static_cast<int>(seams.size())) {
+            selected_seams.push_back(seams[index]);
         }
     }
+
+    seams = std::move(selected_seams);
+    addlog(QString("已选择 %1 条焊缝任务").arg(seams.size()));
+
+    std::vector<std::vector<pcl::PointXYZ>> arc_clouds;
+    auto result3d = WeldSeamExtractor::convertAndGroupTo3D(
+        seams, arcs, points_2d, z0, axis, angle,
+        20.0, 10.0, 20.0, 20.0, &arc_clouds, 30,
+        true);
 
     //平焊缝手眼转换
     for(int i=0;i<result3d.grouped_seams.size();i++)

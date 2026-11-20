@@ -23,6 +23,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <iostream>   // std::cout, std::cin
 
 Weld_search::Weld_search() {}
@@ -2014,6 +2015,203 @@ void IterativeRANSACLineFitting::setArcMinContinuous(int min_pts) {
     arc_min_continuous_ = min_pts;
 }
 
+namespace {
+
+constexpr double kGeometryEpsilon = 1e-9;
+constexpr double kMaxTIntersectionDistance = 4.0;
+constexpr double kMinTIntersectionAngleDeg = 45.0;
+constexpr double kMinSplitSegmentLength = 20.0;
+constexpr double kCutPointMergeDistance = 4.0;
+
+Point2D interpolatePoint(const WeldSeam2D& seam, double t)
+{
+    return Point2D(
+        seam.start.x + (seam.end.x - seam.start.x) * t,
+        seam.start.y + (seam.end.y - seam.start.y) * t);
+}
+
+bool findTIntersectionCut(
+    const WeldSeam2D& branch,
+    const Point2D& branchEndpoint,
+    const WeldSeam2D& throughSeam,
+    double& cutParameter)
+{
+    const double branchDx = branch.end.x - branch.start.x;
+    const double branchDy = branch.end.y - branch.start.y;
+    const double throughDx = throughSeam.end.x - throughSeam.start.x;
+    const double throughDy = throughSeam.end.y - throughSeam.start.y;
+
+    const double branchLength = std::hypot(branchDx, branchDy);
+    const double throughLength = std::hypot(throughDx, throughDy);
+    if (branchLength < kGeometryEpsilon || throughLength < kGeometryEpsilon) {
+        return false;
+    }
+
+    // 使用锐角判断两条焊缝是否明显相交，排除平行或近似平行焊缝。
+    double cosAngle = std::abs(branchDx * throughDx + branchDy * throughDy) /
+                      (branchLength * throughLength);
+    cosAngle = std::max(0.0, std::min(1.0, cosAngle));
+    const double acuteAngleDeg = std::acos(cosAngle) * 180.0 / M_PI;
+    if (acuteAngleDeg < kMinTIntersectionAngleDeg) {
+        return false;
+    }
+
+    const double throughLengthSquared = throughDx * throughDx + throughDy * throughDy;
+    const double endpointDx = branchEndpoint.x - throughSeam.start.x;
+    const double endpointDy = branchEndpoint.y - throughSeam.start.y;
+    const double t = (endpointDx * throughDx + endpointDy * throughDy) /
+                     throughLengthSquared;
+
+    // 交点必须位于主焊缝内部，并保证切开后的两段都有可焊接长度。
+    const double endpointGuard = kMinSplitSegmentLength / throughLength;
+    if (t <= endpointGuard || t >= 1.0 - endpointGuard) {
+        return false;
+    }
+
+    const Point2D foot = interpolatePoint(throughSeam, t);
+    if (branchEndpoint.distance(foot) > kMaxTIntersectionDistance) {
+        return false;
+    }
+
+    cutParameter = t;
+    return true;
+}
+
+void appendSegmentInliers(
+    const WeldSeam2D& source,
+    const std::vector<Point2D>& points,
+    double startParameter,
+    double endParameter,
+    bool includeEnd,
+    WeldSeam2D& segment)
+{
+    const double dx = source.end.x - source.start.x;
+    const double dy = source.end.y - source.start.y;
+    const double lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared < kGeometryEpsilon) {
+        return;
+    }
+
+    for (int index : source.inlier_indices) {
+        if (index < 0 || static_cast<size_t>(index) >= points.size()) {
+            continue;
+        }
+
+        const Point2D& point = points[index];
+        const double pointParameter =
+            ((point.x - source.start.x) * dx + (point.y - source.start.y) * dy) /
+            lengthSquared;
+
+        const bool afterStart = pointParameter >= startParameter - kGeometryEpsilon;
+        const bool beforeEnd = includeEnd
+                                   ? pointParameter <= endParameter + kGeometryEpsilon
+                                   : pointParameter < endParameter;
+        if (afterStart && beforeEnd) {
+            segment.inlier_indices.push_back(index);
+        }
+    }
+}
+
+void splitLinesAtTIntersections(
+    std::vector<WeldSeam2D>& seams,
+    const std::vector<Point2D>& points)
+{
+    if (seams.size() < 2) {
+        return;
+    }
+
+    // 先收集每条主焊缝上的所有切割位置，避免遍历过程中修改 vector
+    // 导致漏检、重复分割或编号不稳定。
+    std::vector<std::vector<double>> cutParameters(seams.size());
+
+    for (size_t branchIndex = 0; branchIndex < seams.size(); ++branchIndex) {
+        const WeldSeam2D& branch = seams[branchIndex];
+
+        for (size_t throughIndex = 0; throughIndex < seams.size(); ++throughIndex) {
+            if (branchIndex == throughIndex) {
+                continue;
+            }
+
+            const WeldSeam2D& throughSeam = seams[throughIndex];
+            double cutParameter = 0.0;
+
+            if (findTIntersectionCut(branch, branch.start, throughSeam, cutParameter)) {
+                cutParameters[throughIndex].push_back(cutParameter);
+            }
+            if (findTIntersectionCut(branch, branch.end, throughSeam, cutParameter)) {
+                cutParameters[throughIndex].push_back(cutParameter);
+            }
+        }
+    }
+
+    std::vector<WeldSeam2D> splitSeams;
+    splitSeams.reserve(seams.size() * 2);
+
+    for (size_t seamIndex = 0; seamIndex < seams.size(); ++seamIndex) {
+        const WeldSeam2D& source = seams[seamIndex];
+        const double sourceLength = source.start.distance(source.end);
+        if (sourceLength < kGeometryEpsilon || cutParameters[seamIndex].empty()) {
+            splitSeams.push_back(source);
+            continue;
+        }
+
+        auto& cuts = cutParameters[seamIndex];
+        std::sort(cuts.begin(), cuts.end());
+
+        // 合并因拟合误差产生的相近切割点，并确保相邻分段不小于最短长度。
+        std::vector<double> acceptedCuts;
+        acceptedCuts.push_back(0.0);
+        for (double cut : cuts) {
+            const double distanceFromPrevious =
+                (cut - acceptedCuts.back()) * sourceLength;
+            const double distanceToEnd = (1.0 - cut) * sourceLength;
+
+            if (distanceFromPrevious < kCutPointMergeDistance ||
+                distanceFromPrevious < kMinSplitSegmentLength ||
+                distanceToEnd < kMinSplitSegmentLength) {
+                continue;
+            }
+            acceptedCuts.push_back(cut);
+        }
+        acceptedCuts.push_back(1.0);
+
+        if (acceptedCuts.size() == 2) {
+            splitSeams.push_back(source);
+            continue;
+        }
+
+        for (size_t cutIndex = 0; cutIndex + 1 < acceptedCuts.size(); ++cutIndex) {
+            const double startParameter = acceptedCuts[cutIndex];
+            const double endParameter = acceptedCuts[cutIndex + 1];
+            const double segmentLength =
+                (endParameter - startParameter) * sourceLength;
+            if (segmentLength < kMinSplitSegmentLength) {
+                continue;
+            }
+
+            WeldSeam2D segment;
+            segment.line = source.line;
+            segment.start = interpolatePoint(source, startParameter);
+            segment.end = interpolatePoint(source, endParameter);
+            segment.length = segmentLength;
+            segment.angle = source.angle;
+
+            appendSegmentInliers(
+                source,
+                points,
+                startParameter,
+                endParameter,
+                cutIndex + 2 == acceptedCuts.size(),
+                segment);
+            splitSeams.push_back(std::move(segment));
+        }
+    }
+
+    seams = std::move(splitSeams);
+}
+
+} // namespace
+
 // 主要提取函数实现
 std::tuple<std::vector<WeldSeam2D>, std::vector<WeldArc2D>>
 IterativeRANSACLineFitting::extractAllWeldSeamsAndArcs(const std::vector<Point2D>& points) {
@@ -2027,138 +2225,11 @@ IterativeRANSACLineFitting::extractAllWeldSeamsAndArcs(const std::vector<Point2D
     }
 
     extractLines(points, remaining_indices, used, seams);
-    // ===== 新增：断线处理 =====
-    splitLinesAtProtrudingEndpoints(seams, points);
+    // 只处理 T 形相交：支线端点靠近主焊缝内部时，将主焊缝断开。
+    splitLinesAtTIntersections(seams, points);
     updateRemainingIndices(remaining_indices, used);
     extractArcs(points, remaining_indices, used, arcs);
     return {seams, arcs};
-}
-
-// ============================================================
-// 断线功能
-// ============================================================
-
-bool IterativeRANSACLineFitting::checkEndpointAgainstLine(
-    const Point2D& a_end,
-    const WeldSeam2D& B,
-    Point2D& foot,
-    double max_dist,
-    double min_end_dist) const
-{
-    const double EPS = 1e-9;
-
-    double d_start = a_end.distance(B.start);
-    double d_end   = a_end.distance(B.end);
-    if (d_start <= min_end_dist || d_end <= min_end_dist) return false;
-
-    double dx = B.end.x - B.start.x;
-    double dy = B.end.y - B.start.y;
-    double len2 = dx * dx + dy * dy;
-    if (len2 < EPS) return false;
-
-    double vx = a_end.x - B.start.x;
-    double vy = a_end.y - B.start.y;
-    double t = (vx * dx + vy * dy) / len2;
-    if (t < 0.0 || t > 1.0) return false;
-
-    foot.x = B.start.x + t * dx;
-    foot.y = B.start.y + t * dy;
-
-    if (a_end.distance(foot) >= max_dist) return false;
-    return true;
-}
-
-void IterativeRANSACLineFitting::splitSeamAtFoot(
-    const WeldSeam2D& B,
-    const Point2D& foot,
-    const std::vector<Point2D>& points,
-    std::vector<WeldSeam2D>& seams) const
-{
-    const double MIN_SEG_LEN = 20.0;
-
-    WeldSeam2D B1;
-    B1.line   = B.line;
-    B1.start  = B.start;
-    B1.end    = foot;
-    B1.length = B1.start.distance(B1.end);
-    B1.angle  = B.angle;
-
-    WeldSeam2D B2;
-    B2.line   = B.line;
-    B2.start  = foot;
-    B2.end    = B.end;
-    B2.length = B2.start.distance(B2.end);
-    B2.angle  = B.angle;
-
-    // 按点到垂足的距离分 inlier
-    for (int idx : B.inlier_indices) {
-        const Point2D& p = points[idx];
-        if (p.distance(foot) <= 0.0) {
-            // 几乎重合，随便给 B1
-            B1.inlier_indices.push_back(idx);
-        } else {
-            // 判断点在垂足的哪一侧：用 B 的方向做投影
-            double dx = B.end.x - B.start.x;
-            double dy = B.end.y - B.start.y;
-            double sign = (p.x - foot.x) * dx + (p.y - foot.y) * dy;
-            if (sign < 0.0)
-                B1.inlier_indices.push_back(idx);
-            else
-                B2.inlier_indices.push_back(idx);
-        }
-    }
-
-    // 按长度阈值决定追加哪些
-    bool keep1 = (B1.length >= MIN_SEG_LEN);
-    bool keep2 = (B2.length >= MIN_SEG_LEN);
-
-    if (keep1) seams.push_back(B1);
-    if (keep2) seams.push_back(B2);
-    // 都 < MIN_SEG_LEN 时两条都不追加，B 直接消失
-}
-
-void IterativeRANSACLineFitting::splitLinesAtProtrudingEndpoints(
-    std::vector<WeldSeam2D>& seams,
-    const std::vector<Point2D>& points)
-{
-    const double MAX_PERP_DIST = 4.0;    // 硬编码
-    const double MIN_END_DIST  = 50.0;   // 硬编码
-
-    bool changed = true;
-    while (changed) {
-        changed = false;
-
-        for (size_t i = 0; i < seams.size() && !changed; ++i) {
-            for (size_t j = 0; j < seams.size() && !changed; ++j) {
-                if (i == j) continue;
-
-                const WeldSeam2D& A = seams[i];
-                const WeldSeam2D& B = seams[j];
-
-                // 检查 A 的两个端点
-                Point2D foot;
-                bool hit = false;
-
-                if (checkEndpointAgainstLine(A.start, B, foot,
-                                             MAX_PERP_DIST, MIN_END_DIST)) {
-                    hit = true;
-                } else if (checkEndpointAgainstLine(A.end, B, foot,
-                                                    MAX_PERP_DIST, MIN_END_DIST)) {
-                    hit = true;
-                }
-
-                if (!hit) continue;
-
-                // 满足：把 B 从 seams 中移除，断开后追加到末尾
-                WeldSeam2D Bcopy = B;
-                seams.erase(seams.begin() + j);
-
-                splitSeamAtFoot(Bcopy, foot, points, seams);
-
-                changed = true;   // 立刻重新开始整个遍历
-            }
-        }
-    }
 }
 
 

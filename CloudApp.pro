@@ -7,10 +7,11 @@ CONFIG += c++17
 
 CONFIG -= depend_includepath
 
+DEFINES += WELD_SEARCH_STATIC
+
 INCLUDEPATH += $$PWD/include
 LIBS += -L$$PWD/lib \
     -lcloud_selve \
-    -lweld_search \
     -lRobotSDK
 
 include($$PWD/qmake/GalaxySDK.pri)
@@ -29,13 +30,16 @@ SOURCES += \
     delectseam.cpp \
     main.cpp \
     opencvset.cpp \
-    src/imagewriter.cpp
+    src/imagewriter.cpp \
+    src/weld_search.cpp
 
 HEADERS += \
     delectseam.h \
     opencvset.h \
     include/imageframe.h \
-    include/imagewriter.h
+    include/imagewriter.h \
+    include/weld_search.h \
+    include/weld_search_global.h
 
 FORMS += \
     delectseam.ui \
