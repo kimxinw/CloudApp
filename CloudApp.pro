@@ -49,3 +49,14 @@ FORMS += \
 qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
+
+win32 {
+    CONFIG(release, debug|release) {
+        DEPLOY_DIR = $$OUT_PWD/release
+    } else {
+        DEPLOY_DIR = $$OUT_PWD/debug
+    }
+
+    QMAKE_POST_LINK += $$quote(cmd /c copy /Y "$$shell_path($$PWD/cloud_selve.dll)" "$$shell_path($$DEPLOY_DIR)") $$escape_expand(\n\t)
+    QMAKE_POST_LINK += $$quote(cmd /c copy /Y "$$shell_path($$PWD/RobotSDK.dll)" "$$shell_path($$DEPLOY_DIR)") $$escape_expand(\n\t)
+}

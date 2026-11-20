@@ -17,6 +17,7 @@
 #include <QSettings>
 #include <QPointer>
 #include <QScopeGuard>
+#include <QLineF>
 #include <random>
 #include <delectseam.h>
 #include <cstring>
@@ -2248,10 +2249,15 @@ void addCombinedLegend(cv::Mat& image, int num_lines, int num_arcs) {
 // 可视化焊缝和圆弧（正确处理负坐标）
 void visualizeWeldSeamsAndArcs(const std::vector<Point2D>& points,
                                const std::vector<WeldSeam2D>& seams,
-                               const std::vector<WeldArc2D>& arcs) {
+                               const std::vector<WeldArc2D>& arcs,
+                               QVector<QLineF>* seam_hit_lines = nullptr) {
     if (points.empty()) {
         qDebug() << "点云为空，无法可视化";
         return;
+    }
+
+    if (seam_hit_lines) {
+        seam_hit_lines->clear();
     }
 
     // 1. 计算点云的边界范围
@@ -2346,6 +2352,12 @@ void visualizeWeldSeamsAndArcs(const std::vector<Point2D>& points,
         cv::Point start_pt = transform(seam.start.x, seam.start.y);
         cv::Point end_pt = transform(seam.end.x, seam.end.y);
         cv::Point center_pt = transform((seam.start.x+seam.end.x)/2+1, (seam.start.y+seam.end.y)/2);
+
+        if (seam_hit_lines) {
+            seam_hit_lines->append(
+                QLineF(QPointF(start_pt.x, start_pt.y),
+                       QPointF(end_pt.x, end_pt.y)));
+        }
 
         // 绘制焊缝线段（加粗）
         cv::line(image, start_pt, end_pt, color, 3);
@@ -2467,7 +2479,8 @@ void OpenCVSet::on_pushButton_26_clicked()
     }
 
 
-    visualizeWeldSeamsAndArcs(points_2d, seams, arcs);
+    QVector<QLineF> seam_hit_lines;
+    visualizeWeldSeamsAndArcs(points_2d, seams, arcs, &seam_hit_lines);
 
     QString pic_path = path + "/weld_seams_and_arcs_result.png";
 
@@ -2487,6 +2500,7 @@ void OpenCVSet::on_pushButton_26_clicked()
     DelectSeam ds(this);
     ds.addpic(pic_path);
     ds.setSeamItems(seam_items);
+    ds.setSeamHitLines(seam_hit_lines);
     ds.setArcDeletionVisible(false);
 
     if (ds.exec() != QDialog::Accepted) {
