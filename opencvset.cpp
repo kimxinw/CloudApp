@@ -70,7 +70,7 @@ float square_size = 20.0f;
 
 double step_count = 10;
 long sudu=2;
-long time_jiange = 200;
+long time_jiange = 50;
 
 Eigen::Vector3f axis(0.0f,0.0f,0.1f);
 float angle=0;
@@ -1831,8 +1831,8 @@ void OpenCVSet::on_pushButton_15_clicked()
         m_imageWriter = std::make_unique<ImageWriter>(
             QDir(root).filePath("work"),
             QDir(root).filePath("work1"),
-            64,
-            256 * 1024 * 1024,
+            256,
+            512 * 1024 * 1024,
             2);
 
         connect(m_imageWriter.get(), &ImageWriter::queueOverflow,
