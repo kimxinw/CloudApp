@@ -1288,29 +1288,29 @@ void OpenCVSet::PCL2Camera()
 
     transactionId+=2;
     // 发送归零结束命令
-    QString hexStr2 = QString("%1 00 00 00 06 01 06 00 1D 00 00")
-                          .arg(transactionId++, 4, 16, QChar('0'))
-                          .toUpper();
-    QByteArray sendData2 = QByteArray::fromHex(hexStr2.remove(' ').toLatin1());
+    // QString hexStr2 = QString("%1 00 00 00 06 01 06 00 1D 00 00")
+    //                       .arg(transactionId++, 4, 16, QChar('0'))
+    //                       .toUpper();
+    // QByteArray sendData2 = QByteArray::fromHex(hexStr2.remove(' ').toLatin1());
 
-    alxeSocket->write(sendData2);
-    // 等待响应确认
-    if (alxeSocket->waitForReadyRead(3000)) {
-        QByteArray response = alxeSocket->readAll();
+    // alxeSocket->write(sendData2);
+    // // 等待响应确认
+    // if (alxeSocket->waitForReadyRead(3000)) {
+    //     QByteArray response = alxeSocket->readAll();
 
-        // 检查响应是否正确
-        if (response.size() >= 12 && response[7] == 0x06) {
-            addlog("移动命令接收成功");
-        } else {
-            addlog("移动命令接收失败");
-            return;
-        }
-    } else {
-        addlog("等待归零启动响应超时");
-        return;
-    }
+    //     // 检查响应是否正确
+    //     if (response.size() >= 12 && response[7] == 0x06) {
+    //         addlog("移动命令接收成功");
+    //     } else {
+    //         addlog("移动命令接收失败");
+    //         return;
+    //     }
+    // } else {
+    //     addlog("等待归零启动响应超时");
+    //     return;
+    // }
 
-    Sleep(100);  // 增加到2秒或更长
+    // Sleep(100);  // 增加到2秒或更长
     QString hexStr3 = QString("%1 00 00 00 06 01 06 00 1D 00 01")
                           .arg(transactionId++, 4, 16, QChar('0'))
                           .toUpper();
@@ -1331,7 +1331,7 @@ void OpenCVSet::PCL2Camera()
         addlog("等待归零启动响应超时");
         return;
     }
-    Sleep(100);
+    // Sleep(100);
     QString hexStr4 = QString("%1 00 00 00 06 01 06 00 1D 00 00")
                           .arg(transactionId++, 4, 16, QChar('0'))
                           .toUpper();
