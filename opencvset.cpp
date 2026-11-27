@@ -2250,7 +2250,9 @@ void addCombinedLegend(cv::Mat& image, int num_lines, int num_arcs) {
 void visualizeWeldSeamsAndArcs(const std::vector<Point2D>& points,
                                const std::vector<WeldSeam2D>& seams,
                                const std::vector<WeldArc2D>& arcs,
-                               QVector<QLineF>* seam_hit_lines = nullptr) {
+                               QVector<QLineF>* seam_hit_lines = nullptr,
+                               const std::vector<Point2D>* vertical_seam_points = nullptr,
+                               QVector<QPointF>* vertical_seam_hit_points = nullptr) {
     if (points.empty()) {
         qDebug() << "点云为空，无法可视化";
         return;
@@ -2258,6 +2260,9 @@ void visualizeWeldSeamsAndArcs(const std::vector<Point2D>& points,
 
     if (seam_hit_lines) {
         seam_hit_lines->clear();
+    }
+    if (vertical_seam_hit_points) {
+        vertical_seam_hit_points->clear();
     }
 
     // 1. 计算点云的边界范围
@@ -2277,6 +2282,15 @@ void visualizeWeldSeamsAndArcs(const std::vector<Point2D>& points,
         max_x = std::max({max_x, seam.start.x, seam.end.x});
         min_y = std::min({min_y, seam.start.y, seam.end.y});
         max_y = std::max({max_y, seam.start.y, seam.end.y});
+    }
+
+    if (vertical_seam_points) {
+        for (const auto& point : *vertical_seam_points) {
+            min_x = std::min(min_x, point.x);
+            max_x = std::max(max_x, point.x);
+            min_y = std::min(min_y, point.y);
+            max_y = std::max(max_y, point.y);
+        }
     }
 
     // 考虑圆弧的范围
@@ -2373,6 +2387,25 @@ void visualizeWeldSeamsAndArcs(const std::vector<Point2D>& points,
         // 标注序号（带背景框）
         std::string text =std::to_string(i + 1);
         drawTextWithBackground(image, center_pt, text, color);
+    }
+
+    if (vertical_seam_points) {
+        for (size_t i = 0; i < vertical_seam_points->size(); ++i) {
+            const Point2D &point = (*vertical_seam_points)[i];
+            const cv::Point image_point = transform(point.x, point.y);
+
+            if (vertical_seam_hit_points) {
+                vertical_seam_hit_points->append(
+                    QPointF(image_point.x, image_point.y));
+            }
+
+            cv::circle(image, image_point, 10, cv::Scalar(210, 0, 180), -1);
+            cv::circle(image, image_point, 10, cv::Scalar(120, 0, 100), 2);
+            drawTextWithBackground(image,
+                                   image_point + cv::Point(12, -12),
+                                   "V" + std::to_string(i + 1),
+                                   cv::Scalar(210, 0, 180));
+        }
     }
 
     // 绘制圆弧焊缝
@@ -2479,8 +2512,37 @@ void OpenCVSet::on_pushButton_26_clicked()
     }
 
 
+    std::vector<WeldSeam2D> seams_for_vertical_detection = seams;
+    auto detected_result3d = WeldSeamExtractor::convertAndGroupTo3D(
+        seams_for_vertical_detection, arcs, points_2d, z0, axis, angle,
+        20.0, 10.0, 20.0, 20.0, nullptr, 30,
+        true);
+    const std::vector<WeldLSeam3D> detected_vertical_seams =
+        detected_result3d.vertical_seams;
+
+    Eigen::Matrix3f projection_rotation = Eigen::Matrix3f::Identity();
+    if (axis.norm() > 1e-6f) {
+        projection_rotation = Eigen::AngleAxisf(angle, axis.normalized()).matrix();
+    }
+
+    std::vector<Point2D> vertical_seam_points;
+    vertical_seam_points.reserve(detected_vertical_seams.size());
+    for (const WeldLSeam3D &vertical_seam : detected_vertical_seams) {
+        const Eigen::Vector3f start(vertical_seam.start.x,
+                                    vertical_seam.start.y,
+                                    vertical_seam.start.z);
+        const Eigen::Vector3f projected_start = projection_rotation * start;
+        vertical_seam_points.emplace_back(projected_start.x(), projected_start.y());
+    }
+
     QVector<QLineF> seam_hit_lines;
-    visualizeWeldSeamsAndArcs(points_2d, seams, arcs, &seam_hit_lines);
+    QVector<QPointF> vertical_seam_hit_points;
+    visualizeWeldSeamsAndArcs(points_2d,
+                              seams,
+                              arcs,
+                              &seam_hit_lines,
+                              &vertical_seam_points,
+                              &vertical_seam_hit_points);
 
     QString pic_path = path + "/weld_seams_and_arcs_result.png";
 
@@ -2497,10 +2559,22 @@ void OpenCVSet::on_pushButton_26_clicked()
                 .arg(seam.end.y, 0, 'f', 1));
     }
 
+    QStringList vertical_seam_items;
+    for (int i = 0; i < static_cast<int>(vertical_seam_points.size()); ++i) {
+        const Point2D &point = vertical_seam_points[i];
+        vertical_seam_items.append(
+            QString("立焊缝 V%1  交点 (%2, %3)")
+                .arg(i + 1)
+                .arg(point.x, 0, 'f', 1)
+                .arg(point.y, 0, 'f', 1));
+    }
+
     DelectSeam ds(this);
     ds.addpic(pic_path);
     ds.setSeamItems(seam_items);
+    ds.setVerticalSeamItems(vertical_seam_items);
     ds.setSeamHitLines(seam_hit_lines);
+    ds.setVerticalSeamHitPoints(vertical_seam_hit_points);
     ds.setArcDeletionVisible(false);
 
     if (ds.exec() != QDialog::Accepted) {
@@ -2509,7 +2583,9 @@ void OpenCVSet::on_pushButton_26_clicked()
     }
 
     const QVector<int> selected_indices = ds.selectedSeamIndices();
-    if (selected_indices.isEmpty()) {
+    const QVector<int> selected_vertical_indices =
+        ds.selectedVerticalSeamIndices();
+    if (selected_indices.isEmpty() && selected_vertical_indices.isEmpty()) {
         QMessageBox::warning(this, "提示", "请至少选择一条焊缝任务");
         return;
     }
@@ -2522,14 +2598,26 @@ void OpenCVSet::on_pushButton_26_clicked()
         }
     }
 
+    std::vector<WeldLSeam3D> selected_vertical_seams;
+    selected_vertical_seams.reserve(selected_vertical_indices.size());
+    for (int index : selected_vertical_indices) {
+        if (index >= 0
+            && index < static_cast<int>(detected_vertical_seams.size())) {
+            selected_vertical_seams.push_back(detected_vertical_seams[index]);
+        }
+    }
+
     seams = std::move(selected_seams);
-    addlog(QString("已选择 %1 条焊缝任务").arg(seams.size()));
+    addlog(QString("已选择 %1 条平焊缝、%2 条立焊缝任务")
+               .arg(seams.size())
+               .arg(selected_vertical_seams.size()));
 
     std::vector<std::vector<pcl::PointXYZ>> arc_clouds;
     auto result3d = WeldSeamExtractor::convertAndGroupTo3D(
         seams, arcs, points_2d, z0, axis, angle,
         20.0, 10.0, 20.0, 20.0, &arc_clouds, 30,
         true);
+    result3d.vertical_seams = std::move(selected_vertical_seams);
 
     //平焊缝手眼转换
     for(int i=0;i<result3d.grouped_seams.size();i++)
@@ -2565,7 +2653,7 @@ void OpenCVSet::on_pushButton_26_clicked()
         calibrator->transformCameraToBase("./handtoeye.yaml",p_in,p_out);
         cv::Point3f p_in2(result3d.vertical_seams[i].end.x,result3d.vertical_seams[i].end.y,result3d.vertical_seams[i].end.z);
         cv::Point3f p_out2;
-        calibrator->transformCameraToBase("./handtoeye.yaml",p_in,p_out);
+        calibrator->transformCameraToBase("./handtoeye.yaml",p_in2,p_out2);
         result3d.vertical_seams[i].start.x=p_out.x;
         result3d.vertical_seams[i].start.y=p_out.y;
         result3d.vertical_seams[i].start.z=p_out.z;
@@ -4050,7 +4138,7 @@ label:
         calibrator->transformCameraToBase("./handtoeye.yaml",p_in,p_out);
         cv::Point3f p_in2(result3d.vertical_seams[i].end.x,result3d.vertical_seams[i].end.y,result3d.vertical_seams[i].end.z);
         cv::Point3f p_out2;
-        calibrator->transformCameraToBase("./handtoeye.yaml",p_in,p_out);
+        calibrator->transformCameraToBase("./handtoeye.yaml",p_in2,p_out2);
         result3d.vertical_seams[i].start.x=p_out.x;
         result3d.vertical_seams[i].start.y=p_out.y;
         result3d.vertical_seams[i].start.z=p_out.z;

@@ -9,6 +9,13 @@
 
 #include <algorithm>
 
+namespace {
+constexpr int TaskIndexRole = Qt::UserRole;
+constexpr int TaskTypeRole = Qt::UserRole + 1;
+constexpr double FlatSeamHitDistance = 12.0;
+constexpr double VerticalSeamHitDistance = 14.0;
+}
+
 DelectSeam::DelectSeam(QWidget *parent)
     : QDialog(parent)
     , ui(new Ui::DelectSeam)
@@ -44,7 +51,8 @@ void DelectSeam::setSeamItems(const QStringList &items)
 
     for (int index = 0; index < items.size(); ++index) {
         auto *item = new QListWidgetItem(items[index], ui->seam_list);
-        item->setData(Qt::UserRole, index);
+        item->setData(TaskIndexRole, index);
+        item->setData(TaskTypeRole, static_cast<int>(TaskType::FlatSeam));
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(Qt::Checked);
     }
@@ -56,23 +64,83 @@ void DelectSeam::setSeamHitLines(const QVector<QLineF> &lines)
 {
     seamHitLines_ = lines;
     ui->label_pic->setCursor(
-        seamHitLines_.isEmpty() ? Qt::ArrowCursor : Qt::PointingHandCursor);
+        seamHitLines_.isEmpty() && verticalSeamHitPoints_.isEmpty()
+            ? Qt::ArrowCursor
+            : Qt::PointingHandCursor);
     refreshPreview();
 }
 
-QVector<int> DelectSeam::selectedSeamIndices() const
+void DelectSeam::setVerticalSeamItems(const QStringList &items)
+{
+    const QSignalBlocker blocker(ui->seam_list);
+
+    for (int row = ui->seam_list->count() - 1; row >= 0; --row) {
+        const QListWidgetItem *item = ui->seam_list->item(row);
+        if (item->data(TaskTypeRole).toInt()
+            == static_cast<int>(TaskType::VerticalSeam)) {
+            delete ui->seam_list->takeItem(row);
+        }
+    }
+
+    for (int index = 0; index < items.size(); ++index) {
+        auto *item = new QListWidgetItem(items[index], ui->seam_list);
+        item->setData(TaskIndexRole, index);
+        item->setData(TaskTypeRole, static_cast<int>(TaskType::VerticalSeam));
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(Qt::Checked);
+    }
+
+    setSeamSelectionVisible(ui->seam_list->count() > 0);
+    refreshPreview();
+}
+
+void DelectSeam::setVerticalSeamHitPoints(const QVector<QPointF> &points)
+{
+    verticalSeamHitPoints_ = points;
+    ui->label_pic->setCursor(
+        seamHitLines_.isEmpty() && verticalSeamHitPoints_.isEmpty()
+            ? Qt::ArrowCursor
+            : Qt::PointingHandCursor);
+    refreshPreview();
+}
+
+QVector<int> DelectSeam::selectedIndices(TaskType type) const
 {
     QVector<int> indices;
     indices.reserve(ui->seam_list->count());
 
     for (int row = 0; row < ui->seam_list->count(); ++row) {
         const QListWidgetItem *item = ui->seam_list->item(row);
-        if (item->checkState() == Qt::Checked) {
-            indices.push_back(item->data(Qt::UserRole).toInt());
+        if (item->checkState() == Qt::Checked
+            && item->data(TaskTypeRole).toInt() == static_cast<int>(type)) {
+            indices.push_back(item->data(TaskIndexRole).toInt());
         }
     }
 
     return indices;
+}
+
+QVector<int> DelectSeam::selectedSeamIndices() const
+{
+    return selectedIndices(TaskType::FlatSeam);
+}
+
+QVector<int> DelectSeam::selectedVerticalSeamIndices() const
+{
+    return selectedIndices(TaskType::VerticalSeam);
+}
+
+QListWidgetItem *DelectSeam::taskItem(TaskType type, int index) const
+{
+    for (int row = 0; row < ui->seam_list->count(); ++row) {
+        QListWidgetItem *item = ui->seam_list->item(row);
+        if (item->data(TaskTypeRole).toInt() == static_cast<int>(type)
+            && item->data(TaskIndexRole).toInt() == index) {
+            return item;
+        }
+    }
+
+    return nullptr;
 }
 
 void DelectSeam::setArcDeletionVisible(bool visible)
@@ -101,7 +169,8 @@ void DelectSeam::setAllSeamsChecked(bool checked)
 
 bool DelectSeam::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == ui->label_pic && !seamHitLines_.isEmpty() &&
+    if (watched == ui->label_pic
+        && (!seamHitLines_.isEmpty() || !verticalSeamHitPoints_.isEmpty()) &&
         event->type() == QEvent::MouseButtonRelease) {
         auto *mouseEvent = static_cast<QMouseEvent *>(event);
         if (mouseEvent->button() == Qt::LeftButton) {
@@ -133,7 +202,8 @@ double DelectSeam::pointToSegmentDistance(const QPointF &point, const QLineF &li
 
 void DelectSeam::toggleSeamAt(const QPointF &labelPosition)
 {
-    if (originalPixmap_.isNull() || seamHitLines_.isEmpty()) {
+    if (originalPixmap_.isNull()
+        || (seamHitLines_.isEmpty() && verticalSeamHitPoints_.isEmpty())) {
         return;
     }
 
@@ -148,11 +218,31 @@ void DelectSeam::toggleSeamAt(const QPointF &labelPosition)
     const double scaleY = static_cast<double>(contentRect.height()) /
                           originalPixmap_.height();
 
+    int nearestVerticalIndex = -1;
+    double nearestVerticalDistance = VerticalSeamHitDistance;
+    for (int index = 0; index < verticalSeamHitPoints_.size(); ++index) {
+        const QPointF &imagePoint = verticalSeamHitPoints_[index];
+        const QPointF labelPoint(contentRect.left() + imagePoint.x() * scaleX,
+                                 contentRect.top() + imagePoint.y() * scaleY);
+        const double distance = QLineF(labelPosition, labelPoint).length();
+        if (distance < nearestVerticalDistance) {
+            nearestVerticalDistance = distance;
+            nearestVerticalIndex = index;
+        }
+    }
+
+    if (nearestVerticalIndex >= 0) {
+        if (QListWidgetItem *item = taskItem(TaskType::VerticalSeam,
+                                             nearestVerticalIndex)) {
+            item->setCheckState(
+                item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+        }
+        return;
+    }
+
     int nearestIndex = -1;
-    double nearestDistance = 12.0;
-    const int lineCount = std::min(
-        static_cast<int>(seamHitLines_.size()),
-        ui->seam_list->count());
+    double nearestDistance = FlatSeamHitDistance;
+    const int lineCount = static_cast<int>(seamHitLines_.size());
 
     for (int index = 0; index < lineCount; ++index) {
         const QLineF &imageLine = seamHitLines_[index];
@@ -173,9 +263,10 @@ void DelectSeam::toggleSeamAt(const QPointF &labelPosition)
         return;
     }
 
-    QListWidgetItem *item = ui->seam_list->item(nearestIndex);
-    item->setCheckState(
-        item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+    if (QListWidgetItem *item = taskItem(TaskType::FlatSeam, nearestIndex)) {
+        item->setCheckState(
+            item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+    }
 }
 
 void DelectSeam::refreshPreview()
@@ -188,13 +279,14 @@ void DelectSeam::refreshPreview()
     QPainter painter(&preview);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    const int lineCount = std::min(
-        static_cast<int>(seamHitLines_.size()),
-        ui->seam_list->count());
+    const int lineCount = static_cast<int>(seamHitLines_.size());
 
     for (int index = 0; index < lineCount; ++index) {
-        const bool selected =
-            ui->seam_list->item(index)->checkState() == Qt::Checked;
+        const QListWidgetItem *item = taskItem(TaskType::FlatSeam, index);
+        if (!item) {
+            continue;
+        }
+        const bool selected = item->checkState() == Qt::Checked;
 
         QPen linePen(selected ? QColor(0, 190, 0) : QColor(150, 150, 150));
         linePen.setWidth(7);
@@ -207,6 +299,31 @@ void DelectSeam::refreshPreview()
         painter.fillRect(numberRect, Qt::white);
         painter.setPen(selected ? QColor(0, 120, 0) : QColor(90, 90, 90));
         painter.drawText(numberRect, Qt::AlignCenter, QString::number(index + 1));
+    }
+
+    for (int index = 0; index < verticalSeamHitPoints_.size(); ++index) {
+        const QListWidgetItem *item = taskItem(TaskType::VerticalSeam, index);
+        if (!item) {
+            continue;
+        }
+
+        const bool selected = item->checkState() == Qt::Checked;
+        const QPointF center = verticalSeamHitPoints_[index];
+        const QColor markerColor = selected ? QColor(180, 0, 210)
+                                            : QColor(150, 150, 150);
+
+        painter.setPen(QPen(Qt::white, 3));
+        painter.setBrush(markerColor);
+        painter.drawEllipse(center, 10.0, 10.0);
+        painter.setPen(QPen(markerColor.darker(150), 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawEllipse(center, 10.0, 10.0);
+
+        const QRectF numberRect(center.x() + 9.0, center.y() - 20.0, 34.0, 20.0);
+        painter.fillRect(numberRect, Qt::white);
+        painter.setPen(markerColor.darker(150));
+        painter.drawText(numberRect, Qt::AlignCenter,
+                         QString("V%1").arg(index + 1));
     }
 
     painter.end();
